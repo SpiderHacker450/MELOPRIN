@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PINKVERSE</string>
+    <string name="title_activity_main">PINKVERSE</string>
+    <string name="package_name">com.pinkverse.app</string>
+    <string name="custom_url_scheme">com.pinkverse.app</string>
+</resources>

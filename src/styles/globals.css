@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Design System Color Tokens */
+    --color-midnight: #1A1028;
+    --color-midnight-surface: #2D1B4E;
+    --color-coral: #FF6F61;
+    --color-coral-light: #FF8A80;
+    --color-sky: #70B5F9;
+    --color-sky-light: #EBF5FB;
+    --color-peach: #FFBE98;
+    --color-peach-light: #FFF2EB;
+    --color-lavender: #9C88FF;
+    --color-lavender-light: #E8E0F8;
+    --color-cream: #FFFDF9;
+    --color-scrapbook: #FAF7F2;
+    --color-gold: #FFD54F;
+    --color-pink: #F8DCE7;
+    --color-berry: #A85D79;
+    --color-text: #2D232E;
+
+    /* Base theme variables */
+    --color-blush: #FDEFF4;
+    --color-rose: #F8C8DC;
+    --color-pearl: #FFFDF9;
+    --color-deep-rose: #A85D79;
+    --color-champagne: #FAF7F2;
+    --color-cinema-dark: #1A1028;
+    --color-cinema-surface: #2D1B4E;
+
+    /* Clean, modern typography */
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-ui: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+  }
+
+  body {
+    background-color: var(--color-cream);
+    color: var(--color-text);
+    font-family: var(--font-ui);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* Fluid typography */
+  .text-fluid-xs { font-size: clamp(0.75rem, 0.72rem + 0.2vw, 0.875rem); }
+  .text-fluid-sm { font-size: clamp(0.85rem, 0.8rem + 0.3vw, 1rem); }
+  .text-fluid-base { font-size: clamp(0.95rem, 0.9rem + 0.35vw, 1.125rem); }
+  .text-fluid-lg { font-size: clamp(1.125rem, 1.05rem + 0.5vw, 1.35rem); }
+  .text-fluid-xl { font-size: clamp(1.35rem, 1.2rem + 0.8vw, 1.75rem); }
+  .text-fluid-2xl { font-size: clamp(1.75rem, 1.5rem + 1.25vw, 2.35rem); }
+  .text-fluid-3xl { font-size: clamp(2.25rem, 1.85rem + 2vw, 3.25rem); }
+  .text-fluid-4xl { font-size: clamp(2.75rem, 2.2rem + 2.75vw, 4.5rem); }
+  .text-fluid-hero { font-size: clamp(3.25rem, 2.5rem + 4vw, 6rem); }
+}
+
+/* Glassmorphism & Scrapbook Elements */
+.glass-panel {
+  background: rgba(255, 253, 249, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 111, 97, 0.18);
+  box-shadow: 0 10px 30px 0 rgba(45, 35, 46, 0.06);
+}
+
+.glass-panel-dark {
+  background: rgba(26, 16, 40, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(156, 136, 255, 0.25);
+  box-shadow: 0 14px 44px 0 rgba(0, 0, 0, 0.45);
+}
+
+.glass-button {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 242, 235, 0.9) 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 111, 97, 0.35);
+  box-shadow: 0 4px 16px rgba(45, 35, 46, 0.08);
+  transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.25s ease, background 0.25s ease;
+}
+
+.glass-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255, 111, 97, 0.2);
+  background: linear-gradient(135deg, #ffffff 0%, #fff2eb 100%);
+}
+
+.glass-button:active {
+  transform: translateY(0);
+}
+
+/* Scrapbook Tape Accent */
+.tape-strip {
+  background: rgba(255, 255, 255, 0.65);
+  border-left: 2px dashed rgba(255, 111, 97, 0.3);
+  border-right: 2px dashed rgba(255, 111, 97, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Confetti & Star Glows */
+.star-glow {
+  filter: drop-shadow(0 0 12px rgba(255, 213, 79, 0.6));
+}
+
+.coral-glow {
+  filter: drop-shadow(0 0 16px rgba(255, 111, 97, 0.4));
+}
+
+.sky-glow {
+  filter: drop-shadow(0 0 16px rgba(112, 181, 249, 0.4));
+}
+
+/* Subtle Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FFFDF9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #FFBE98;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #FF6F61;
+}
+
+/* Reduced Motion Fallback */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,178 @@
+/* Glassmorphism Countdown Styles */
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes separatorBlink {
+  0%, 100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes ringPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(255, 111, 97, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(255, 111, 97, 0.85));
+  }
+}
+
+/* Shimmer gradient animation on headline */
+@keyframes textShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    #FFB6C1 0%,
+    #FFE4E1 20%,
+    #FFF9C4 40%,
+    #FFD54F 60%,
+    #FF8E9E 80%,
+    #FFB6C1 100%
+  );
+  background-size: 250% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: textShimmer 7s ease-in-out infinite;
+}
+
+@keyframes fadeInSoft {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-soft {
+  animation: fadeInSoft 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.countdown-radial-glow {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(255, 105, 180, 0.16) 0%,
+    rgba(147, 51, 234, 0.12) 35%,
+    rgba(255, 183, 77, 0.08) 55%,
+    transparent 75%
+  );
+  animation: pulseGlow 8s ease-in-out infinite;
+}
+
+.colon-dot {
+  animation: separatorBlink 1s ease-in-out infinite;
+}
+
+.seconds-ring {
+  animation: ringPulse 2s ease-in-out infinite;
+}
+
+/* Glassmorphism Digit Card */
+.glass-digit-card {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 0 30px rgba(255, 111, 145, 0.08);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-digit-card:hover {
+  border-color: rgba(255, 182, 193, 0.25);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 0 40px rgba(255, 111, 145, 0.18);
+}
+
+/* Vertical Roll Number Transition */
+.roll-container {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.roll-digit-enter {
+  animation: rollIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.roll-digit-exit {
+  animation: rollOut 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes rollIn {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes rollOut {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+/* Fallback for users preferring reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .countdown-radial-glow,
+  .colon-dot,
+  .seconds-ring,
+  .shimmer-text,
+  .fade-in-soft,
+  .roll-digit-enter,
+  .roll-digit-exit {
+    animation: none !important;
+    transition: none !important;
+  }
+  .roll-digit-enter {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .fade-in-soft {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

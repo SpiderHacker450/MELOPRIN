@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <radialGradient id="goldBg" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#3D2808" />
+      <stop offset="60%" stop-color="#241703" />
+      <stop offset="100%" stop-color="#120B01" />
+    </radialGradient>
+    <radialGradient id="darkCocoaSphere" cx="35%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#543318" />
+      <stop offset="45%" stop-color="#331A0B" />
+      <stop offset="85%" stop-color="#1A0C04" />
+      <stop offset="100%" stop-color="#0D0501" />
+    </radialGradient>
+    <linearGradient id="realGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF9C4" />
+      <stop offset="25%" stop-color="#FFD54F" />
+      <stop offset="60%" stop-color="#FFB300" />
+      <stop offset="85%" stop-color="#FF8F00" />
+      <stop offset="100%" stop-color="#FFE082" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Platter -->
+  <rect width="200" height="200" rx="36" fill="url(#goldBg)" />
+
+  <!-- Shadow -->
+  <ellipse cx="100" cy="155" rx="55" ry="14" fill="#0A0601" opacity="0.6" />
+
+  <!-- Decadent Truffle Sphere -->
+  <ellipse cx="100" cy="105" rx="50" ry="46" fill="url(#darkCocoaSphere)" />
+
+  <!-- Cocoa Powder Texture Rings -->
+  <path d="M65 95 C75 80, 110 75, 135 90 C125 105, 80 110, 65 95 Z" fill="#4E2B12" opacity="0.4" />
+
+  <!-- 24K Gold Leaf Flakes on Surface -->
+  <!-- Main Large Gold Leaf -->
+  <path d="M85 70 C88 64, 105 60, 115 68 C118 78, 108 88, 98 86 C88 84, 82 76, 85 70 Z" fill="url(#realGold)" />
+  <path d="M90 73 C95 68, 104 66, 110 72 C112 78, 105 82, 98 81 C94 80, 89 77, 90 73 Z" fill="#FFFDE7" opacity="0.7" />
+
+  <!-- Secondary Gold Flakes -->
+  <polygon points="120,88 132,82 128,95 118,92" fill="url(#realGold)" />
+  <polygon points="72,98 82,92 78,104 70,102" fill="url(#realGold)" />
+  <polygon points="92,112 104,106 100,118 90,116" fill="url(#realGold)" />
+  <circle cx="125" cy="108" r="3" fill="#FFD54F" />
+  <circle cx="75" cy="78" r="2.5" fill="#FFE082" />
+  <circle cx="112" cy="125" r="2" fill="#FFD54F" />
+  <circle cx="85" cy="128" r="2" fill="#FFD54F" />
+
+  <!-- Glimmer Stars -->
+  <path d="M102 62 L104 55 L108 53 L104 51 L102 44 L100 51 L96 53 L100 55 Z" fill="#FFFDE7" />
+  <path d="M136 78 L138 72 L143 70 L138 68 L136 62 L134 68 L129 70 L134 72 Z" fill="#FFFDE7" />
+</svg>
+

@@ -1,0 +1,67 @@
+# Dependencies
+/node_modules/
+
+# Build and Distribution Outputs
+/dist/
+/dist-ssr/
+/release/
+
+# Private Storage & Personal Media
+/storage/
+/all_pic/
+/all_pic_upright/
+all_pic*
+/review/
+/screenshots/
+
+# Android Native Builds
+/android/app/build/
+/android/.gradle/
+/android/build/
+
+# Encryption, Secrets, and Keys
+*.enc
+.content_key
+.env
+.env.*
+*.env
+
+# Binaries, Archives & Bundles
+*.apk
+*.exe
+*.asar
+*.7z
+*.zip
+
+# Local-Only Private Experience, Scenes, Data, and Scripts
+/src/data/
+/src/scenes/
+/src/components/
+/src/context/
+/src/security/
+/src/audio/
+/src/utils/
+/src/motion/
+/src/app/
+/src/main.tsx
+/experience.html
+/electron/
+/scripts/
+
+# Documentation & Markdown Files (Local Only, except README.md)
+/*.md
+!/README.md
+
+# Allowed Environment Templates
+!/.env.example
+
+# Editor & System Artifacts
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini
+scripts/last_prompt.txt
+logs
+*.log
