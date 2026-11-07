@@ -1,4 +1,3 @@
-const { checkPasscode } = require('./security/passcodeManager.cjs');
 const {
   createAuthorizedSession,
   verifySession,
@@ -6,11 +5,11 @@ const {
   consumeSingleUseTicket,
 } = require('./security/sessionManager.cjs');
 const { generateEncryptedTilePackage } = require('./security/tiledImageService.cjs');
-const { resolvePrivateImage } = require('./security/imageDelivery.cjs');
+const { resolvePrivateImage, getAuthorizedDerivative } = require('./security/imageDelivery.cjs');
 const { evaluateRequestAbuse, isSuspiciousClient } = require('./security/abuseDefender.cjs');
 const { recordForensicEvent } = require('./security/forensicsLog.cjs');
 const { getClientIp } = require('./security/trustProxy.cjs');
-const { checkUnlockRateLimit } = require('./security/releaseRateLimiter.cjs');
+const { verifyAccessToken } = require('./security/accessTokenManager.cjs');
 
 function parseJsonBody(req) {
   return new Promise((resolve) => {
@@ -44,6 +43,7 @@ function securityMiddleware(req, res, next) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
 
   // 1. Direct Static Access Block
   if (
@@ -51,85 +51,59 @@ function securityMiddleware(req, res, next) {
     pathname.startsWith('/memories/') ||
     pathname.startsWith('/storage/')
   ) {
-    res.writeHead(404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.writeHead(404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow, noarchive' });
     res.end(JSON.stringify({ error: 'Not Found' }));
     return;
   }
 
-  // 2. Passcode Gate Unlock Endpoint: POST /api/auth/unlock
-  if (pathname === '/api/auth/unlock' && req.method === 'POST') {
-    const burstCheck = checkUnlockRateLimit(clientIp);
-    if (!burstCheck.allowed) {
-      res.writeHead(429, {
+  // 2. Secret link token gate (if PINKVERSE_ACCESS_TOKEN is configured)
+  const isPhotoRoute =
+    pathname.startsWith('/api/v2/photos') ||
+    pathname.startsWith('/api/photos') ||
+    pathname.startsWith('/api/private-images');
+  const isAudioRoute = pathname.startsWith('/audio/') || pathname.endsWith('.mp3');
+
+  if (isPhotoRoute || isAudioRoute || pathname === '/api/auth/session') {
+    const tokenCheck = verifyAccessToken(req);
+    if (tokenCheck.required && !tokenCheck.valid) {
+      res.writeHead(401, {
         'Content-Type': 'application/json',
-        'Retry-After': String(burstCheck.retryAfterSeconds || 60),
         'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        'Referrer-Policy': 'no-referrer',
       });
-      res.end(JSON.stringify({
-        error: 'TOO_MANY_REQUESTS',
-        message: 'Too many unlock requests. Please wait before retrying.',
-      }));
+      res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
       return;
     }
-
-    parseJsonBody(req).then((body) => {
-      const passcode = body.passcode || '';
-      const checkResult = checkPasscode(passcode, clientIp);
-
-      if (!checkResult.success) {
-        const statusCode = checkResult.reason === 'LOCKED_OUT' ? 429 : 401;
-        recordForensicEvent({
-          action: 'UNLOCK_FAILED',
-          ip: clientIp,
-          resource: 'passcode_gate',
-          detail: checkResult.reason,
-        });
-
-        res.writeHead(statusCode, {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-        });
-        res.end(JSON.stringify(checkResult));
-        return;
-      }
-
-      // Passcode verified: Create authorized session
-      const session = createAuthorizedSession(clientIp);
-      recordForensicEvent({
-        action: 'UNLOCK_SUCCESS',
-        sid: session.sid,
-        ip: clientIp,
-        resource: 'passcode_gate',
-      });
-
-      const cookieHeader = `pinkverse_secure_session=${session.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600`;
-
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Set-Cookie': cookieHeader,
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-      });
-      res.end(
-        JSON.stringify({
-          status: 'unlocked',
-          token: session.token,
-          sessionKey: session.sessionKey,
-          expiresAt: session.expiresAt,
-        })
-      );
-    });
-    return;
   }
 
-  // 3. Guest Session Auto-Issue Endpoint: POST /api/auth/session (Default access)
+  // 3. Audio & Media Session Gate: Prohibit hot-linking or unauthenticated scraping
+  if (pathname.startsWith('/audio/') || pathname.endsWith('.mp3')) {
+    const verification = verifySession(req);
+    if (!verification.valid) {
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        'Referrer-Policy': 'no-referrer',
+      });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+  }
+
+  // 3. Guest Session Auto-Issue Endpoint: POST /api/auth/session
   if (pathname === '/api/auth/session') {
     const session = createAuthorizedSession(clientIp);
-    const cookieHeader = `pinkverse_secure_session=${session.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600`;
+    const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted;
+    const cookieHeader = `pinkverse_secure_session=${session.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=14400${isSecure ? '; Secure' : ''}`;
 
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Set-Cookie': cookieHeader,
       'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'X-Robots-Tag': 'noindex, nofollow, noarchive',
+      'Referrer-Policy': 'no-referrer',
     });
     res.end(
       JSON.stringify({
@@ -260,6 +234,109 @@ function securityMiddleware(req, res, next) {
         res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ error: 'Internal processing error' }));
       });
+    return;
+  }
+
+  // 6b. Photo Metadata Endpoint: GET /api/v2/photos/:imageId/metadata
+  if (pathname.startsWith('/api/v2/photos/') && pathname.endsWith('/metadata')) {
+    const parts = pathname.split('/');
+    const imageId = parts[4];
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'private, max-age=3600',
+    });
+    res.end(JSON.stringify({ imageId, status: 'ready' }));
+    return;
+  }
+
+  // 6c. High-Performance Clean Authorized Derivative Delivery: GET /api/v2/photos/:imageId (and GET /api/photos/:imageId)
+  // Delivers pre-generated derivative (thumb 400px or viewing 1280px) in a single authorized HTTP response with strong ETag and 1h private cache.
+  if (
+    (pathname.startsWith('/api/v2/photos/') || pathname.startsWith('/api/photos/')) &&
+    !pathname.endsWith('/ticket') &&
+    !pathname.endsWith('/tiles') &&
+    !pathname.endsWith('/metadata')
+  ) {
+    const imageId = pathname.replace(/^\/api\/(v2\/)?photos\//, '').split('/')[0];
+
+    const verification = verifySession(req);
+    if (!verification.valid) {
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        'Referrer-Policy': 'no-referrer',
+      });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const requestedSize = urlObj.searchParams.get('size') || 'thumb';
+
+    // Token-bucket abuse defense check
+    const abuseCheck = evaluateRequestAbuse(verification.session, clientIp, imageId, requestedSize);
+    if (!abuseCheck.allowed) {
+      const status = abuseCheck.status || (abuseCheck.reason.includes('REVOKED') ? 403 : 429);
+      const headers = {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        'Referrer-Policy': 'no-referrer',
+      };
+      if (abuseCheck.retryAfter) {
+        headers['Retry-After'] = String(abuseCheck.retryAfter);
+      }
+      res.writeHead(status, headers);
+      res.end(JSON.stringify({ error: abuseCheck.message, reason: abuseCheck.reason }));
+      return;
+    }
+
+    const derivative = getAuthorizedDerivative(imageId, requestedSize);
+    if (!derivative) {
+      res.writeHead(404, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        'Referrer-Policy': 'no-referrer',
+      });
+      res.end(JSON.stringify({ error: 'Photo not found' }));
+      return;
+    }
+
+    // Conditional HTTP ETag caching: return 304 Not Modified if client already has this version
+    const ifNoneMatch = req.headers['if-none-match'];
+    if (ifNoneMatch && ifNoneMatch === derivative.etag) {
+      res.writeHead(304, {
+        'ETag': derivative.etag,
+        'Cache-Control': 'private, max-age=3600, stale-while-revalidate=86400',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+        'Referrer-Policy': 'no-referrer',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+      });
+      res.end();
+      return;
+    }
+
+    recordForensicEvent({
+      action: 'DELIVER_AUTHORIZED_PHOTO',
+      sid: verification.session.sid,
+      ip: clientIp,
+      resource: imageId,
+      detail: `size=${requestedSize}&bytes=${derivative.length}`,
+    });
+
+    res.writeHead(200, {
+      'Content-Type': derivative.contentType,
+      'Content-Length': String(derivative.length),
+      'ETag': derivative.etag,
+      'Cache-Control': 'private, max-age=3600, stale-while-revalidate=86400',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Robots-Tag': 'noindex, nofollow, noarchive',
+      'Content-Disposition': 'inline',
+    });
+    res.end(derivative.buffer);
     return;
   }
 

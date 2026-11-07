@@ -69,42 +69,7 @@ function evaluateRequestAbuse(session, clientIp, requestedImageId, requestedSize
   if (session) {
     session.requestCount = (session.requestCount || 0) + 1;
 
-    // A. Detect Automated Rapid Sequential Scraping (Full photo extraction)
-    if (requestedImageId && requestedSize !== 'thumb') {
-      if (!session.recentPhotoHistory) session.recentPhotoHistory = [];
-      const history = session.recentPhotoHistory;
-      history.push({ id: requestedImageId, time: now });
-      if (history.length > 30) history.shift();
-
-      if (history.length >= LIMITER_CONFIG.SCRAPING_THRESHOLD_COUNT) {
-        const recent = history.slice(-LIMITER_CONFIG.SCRAPING_THRESHOLD_COUNT);
-        const timeDelta = recent[recent.length - 1].time - recent[0].time;
-        const uniqueIds = new Set(recent.map((r) => r.id));
-
-        // If requesting 18+ different photos sequentially in < 1.5s
-        if (
-          uniqueIds.size >= LIMITER_CONFIG.SCRAPING_THRESHOLD_COUNT &&
-          timeDelta < LIMITER_CONFIG.SCRAPING_WINDOW_MS
-        ) {
-          revokeSession(session.sid, 'Automated rapid scraping detected');
-          recordForensicEvent({
-            action: 'SESSION_REVOKED',
-            sid: session.sid,
-            ip: clientIp,
-            resource: requestedImageId,
-            detail: `Rapid sequential scraping: ${uniqueIds.size} photos in ${timeDelta}ms`,
-          });
-          return {
-            allowed: false,
-            status: 403,
-            reason: 'SESSION_REVOKED_SCRAPING',
-            message: 'Session revoked due to automated scraping pattern.',
-          };
-        }
-      }
-    }
-
-    // B. Token Bucket Rate Limiter
+    // A. Token Bucket Rate Limiter
     if (session.tokens === undefined) {
       session.tokens = LIMITER_CONFIG.BUCKET_CAPACITY;
       session.lastRefill = now;
@@ -122,50 +87,86 @@ function evaluateRequestAbuse(session, clientIp, requestedImageId, requestedSize
     // Determine request cost (thumbnail discount)
     const cost = LIMITER_CONFIG.TOKEN_COST[requestedSize] || 1.0;
 
-    if (session.tokens >= cost) {
-      session.tokens -= cost;
-      session.consecutive429Count = 0;
-      session.lastRequestTime = now;
-      return { allowed: true };
-    }
+    if (session.tokens < cost) {
+      // Rate limit hit (Tokens depleted)
+      session.consecutive429Count = (session.consecutive429Count || 0) + 1;
 
-    // Rate limit hit (Tokens depleted)
-    session.consecutive429Count = (session.consecutive429Count || 0) + 1;
+      // Check for sustained abuse: client hitting rate limit 8+ times consecutively without backing off
+      if (session.consecutive429Count > LIMITER_CONFIG.MAX_CONSECUTIVE_429_VIOLATIONS) {
+        revokeSession(session.sid, 'Sustained rate limit abuse');
+        recordForensicEvent({
+          action: 'SESSION_REVOKED',
+          sid: session.sid,
+          ip: clientIp,
+          resource: requestedImageId,
+          detail: 'Sustained rate limit abuse without backoff',
+        });
+        return {
+          allowed: false,
+          status: 403,
+          reason: 'SESSION_REVOKED_SUSTAINED',
+          message: 'Session revoked due to sustained abuse.',
+        };
+      }
 
-    // Check for sustained abuse: client hitting rate limit 8+ times consecutively without backing off
-    if (session.consecutive429Count > LIMITER_CONFIG.MAX_CONSECUTIVE_429_VIOLATIONS) {
-      revokeSession(session.sid, 'Sustained rate limit abuse');
+      // Normal rate limiting: Return HTTP 429 + Retry-After (DO NOT REVOKE SESSION ON INITIAL BURST)
       recordForensicEvent({
-        action: 'SESSION_REVOKED',
+        action: 'RATE_LIMIT_429',
         sid: session.sid,
         ip: clientIp,
         resource: requestedImageId,
-        detail: 'Sustained rate limit abuse without backoff',
+        detail: `Tokens depleted (${session.tokens.toFixed(1)} < ${cost})`,
       });
+
       return {
         allowed: false,
-        status: 403,
-        reason: 'SESSION_REVOKED_SUSTAINED',
-        message: 'Session revoked due to sustained abuse.',
+        status: 429,
+        reason: 'RATE_LIMITED',
+        retryAfter: LIMITER_CONFIG.RETRY_AFTER_SECONDS,
+        message: 'Rate limit reached. Please wait and retry.',
       };
     }
 
-    // Normal rate limiting: Return HTTP 429 + Retry-After (DO NOT REVOKE SESSION)
-    recordForensicEvent({
-      action: 'RATE_LIMIT_429',
-      sid: session.sid,
-      ip: clientIp,
-      resource: requestedImageId,
-      detail: `Tokens depleted (${session.tokens.toFixed(1)} < ${cost})`,
-    });
+    // Deduct tokens for allowed request
+    session.tokens -= cost;
+    session.consecutive429Count = 0;
+    session.lastRequestTime = now;
 
-    return {
-      allowed: false,
-      status: 429,
-      reason: 'RATE_LIMITED',
-      retryAfter: LIMITER_CONFIG.RETRY_AFTER_SECONDS,
-      message: 'Rate limit reached. Please wait and retry.',
-    };
+    // B. Detect Automated Rapid Sequential Scraping (Full high-res photo extraction)
+    if (requestedImageId && requestedSize !== 'thumb') {
+      if (!session.recentPhotoHistory) session.recentPhotoHistory = [];
+      const history = session.recentPhotoHistory;
+      history.push({ id: requestedImageId, time: now });
+      if (history.length > 30) history.shift();
+
+      if (history.length >= LIMITER_CONFIG.SCRAPING_THRESHOLD_COUNT) {
+        const recent = history.slice(-LIMITER_CONFIG.SCRAPING_THRESHOLD_COUNT);
+        const timeDelta = recent[recent.length - 1].time - recent[0].time;
+        const uniqueIds = new Set(recent.map((r) => r.id));
+
+        if (
+          uniqueIds.size >= LIMITER_CONFIG.SCRAPING_THRESHOLD_COUNT &&
+          timeDelta < LIMITER_CONFIG.SCRAPING_WINDOW_MS
+        ) {
+          recordForensicEvent({
+            action: 'SCRAPING_THROTTLED',
+            sid: session.sid,
+            ip: clientIp,
+            resource: requestedImageId,
+            detail: `Rapid sequential scraping: ${uniqueIds.size} photos in ${timeDelta}ms`,
+          });
+          return {
+            allowed: false,
+            status: 429,
+            reason: 'RATE_LIMITED_SCRAPING',
+            retryAfter: 2,
+            message: 'Rapid sequential extraction detected. Please slow down.',
+          };
+        }
+      }
+    }
+
+    return { allowed: true };
   }
 
   return { allowed: true };

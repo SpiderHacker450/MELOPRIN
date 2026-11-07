@@ -33,8 +33,8 @@ function getSessionSecret() {
   return envSecret || fallbackDevSecret;
 }
 
-// Default session lifespan: 1 hour
-const DEFAULT_SESSION_LIFESPAN_MS = 60 * 60 * 1000;
+// Default session lifespan: 4 hours (with automatic silent renewal)
+const DEFAULT_SESSION_LIFESPAN_MS = 4 * 60 * 60 * 1000;
 
 // Active in-memory session registry: sessionId -> sessionRecord
 const activeSessions = new Map();
@@ -326,12 +326,38 @@ function consumeSingleUseTicket(ticket, expectedSid, expectedImageId) {
   return { valid: true };
 }
 
+/**
+ * Checks if a session is near expiration (< 1 hour remaining) and renews it silently.
+ */
+function renewSessionIfNearExpiry(sessionRecord) {
+  const now = Date.now();
+  if (!sessionRecord || sessionRecord.revoked) return null;
+  if (sessionRecord.exp - now < 60 * 60 * 1000) {
+    sessionRecord.exp = now + DEFAULT_SESSION_LIFESPAN_MS;
+    const publicPayload = {
+      sid: sessionRecord.sid,
+      role: sessionRecord.role || 'authorized_guest',
+      iat: sessionRecord.iat,
+      exp: sessionRecord.exp,
+    };
+    const payloadBase64 = Buffer.from(JSON.stringify(publicPayload)).toString('base64url');
+    const signature = crypto
+      .createHmac('sha256', getSessionSecret())
+      .update(payloadBase64)
+      .digest('base64url');
+    const token = `${payloadBase64}.${signature}`;
+    return { token, expiresAt: sessionRecord.exp };
+  }
+  return null;
+}
+
 module.exports = {
   createAuthorizedSession,
   verifySession,
   revokeSession,
   createSingleUseTicket,
   consumeSingleUseTicket,
+  renewSessionIfNearExpiry,
   validateProductionSessionSecret,
   getSessionSecret,
   activeSessions,

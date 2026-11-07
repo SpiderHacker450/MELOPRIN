@@ -200,7 +200,9 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
           if (confirmRes.ok) {
             const confirmData: ReleaseStatus = await confirmRes.json();
             if (!confirmData.locked) {
-              window.location.href = targetTunnel + '/';
+              const hash = window.location.hash || '';
+              const cleanTunnel = targetTunnel.replace(/\/$/, '');
+              window.location.href = cleanTunnel + '/' + hash;
               return;
             }
           }

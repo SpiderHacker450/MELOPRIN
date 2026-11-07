@@ -6,20 +6,20 @@
 const IS_DEV = process.env.NODE_ENV !== 'production' || process.env.PINKVERSE_DEV_MODE === 'true';
 
 const LIMITER_CONFIG = {
-  // Token Bucket Capacity (maximum burst allowance)
-  // Allows rapid resource navigation without triggering rate limits
-  BUCKET_CAPACITY: IS_DEV ? 120 : 40,
+  // Token Bucket Capacity (maximum burst allowance per session)
+  BUCKET_CAPACITY: 40,
 
-  // Token refill rate (tokens added per second)
-  REFILL_RATE_PER_SEC: IS_DEV ? 30 : 12,
+  // Token refill rate (tokens added per second: 4 tokens/sec = 240 tokens/min)
+  REFILL_RATE_PER_SEC: 4.0,
 
   // Token cost per image size
-  // Thumbnails are lightweight and discounted so galleries can load smoothly
+  // Thumbnails are discounted (0.3) so normal browsing through all 55 photos needs only ~16.5 tokens
+  // Large viewing photos cost 1.5 tokens, preventing rapid mass extraction in seconds
   TOKEN_COST: {
-    thumb: 0.5,    // Marquee & small grid tiles
-    small: 0.5,    // Small cards
-    medium: 0.8,   // Standard asset delivery
-    large: 1.0,    // High-resolution display assets
+    thumb: 0.3,    // Marquee & gallery grid thumbnails
+    small: 0.3,    // Small cards
+    medium: 0.8,   // Standard assets
+    large: 1.5,    // Full viewing resolution assets
   },
 
   // Sequential Scraper Pattern Detection
@@ -34,8 +34,8 @@ const LIMITER_CONFIG = {
   // Retry-After header duration in seconds
   RETRY_AFTER_SECONDS: 1,
 
-  // Global IP rate limit (per minute)
-  MAX_REQUESTS_PER_MINUTE_PER_IP: IS_DEV ? 600 : 200,
+  // Global IP rate limit (100 requests per minute per IP on photo/audio endpoints)
+  MAX_REQUESTS_PER_MINUTE_PER_IP: 100,
 };
 
 module.exports = { LIMITER_CONFIG, IS_DEV };

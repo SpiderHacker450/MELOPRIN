@@ -3,15 +3,15 @@ const path = require('path');
 const fs = require('fs');
 const { releaseMiddleware } = require('./security/releaseMiddleware.cjs');
 const { isReleased, validateProductionReleaseConfig } = require('./security/releasePolicy.cjs');
-const { validateProductionPasscode } = require('./security/passcodeManager.cjs');
 const { validateProductionSessionSecret } = require('./security/sessionManager.cjs');
+const { validateProductionAccessToken, verifyAccessToken } = require('./security/accessTokenManager.cjs');
 const { securityMiddleware } = require('./middleware.cjs');
 
 // Fail-closed startup check in production
 try {
   validateProductionReleaseConfig();
-  validateProductionPasscode();
   validateProductionSessionSecret();
+  validateProductionAccessToken();
 } catch (err) {
   console.error(err.message);
   process.exit(1);
@@ -54,6 +54,22 @@ const server = http.createServer((req, res) => {
       const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       let pathname = decodeURIComponent(urlObj.pathname);
 
+      // Dedicated robots.txt endpoint to disallow crawler indexing on all origins
+      if (pathname === '/robots.txt') {
+        res.writeHead(200, {
+          'Content-Type': 'text/plain',
+          'Cache-Control': 'public, max-age=86400',
+          'X-Robots-Tag': 'noindex, nofollow, noarchive',
+          'Referrer-Policy': 'no-referrer',
+        });
+        res.end("User-agent: *\nDisallow: /\n");
+        return;
+      }
+
+      // Hardened Anti-Scraping & Privacy Headers on all static delivery
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+
       // Determine optimal Cache-Control:
       // - HTML entry documents MUST NEVER be cached to ensure instantaneous transition at release instant
       // - Protected content & post-release assets are strictly private, no-store
@@ -62,6 +78,34 @@ const server = http.createServer((req, res) => {
       let cacheControl = 'public, max-age=3600';
       if (isHtmlDoc || released) {
         cacheControl = 'private, no-store, max-age=0, must-revalidate';
+      }
+
+      // Entry-HTML access token verification when PINKVERSE_ACCESS_TOKEN is configured
+      if (released) {
+        const isDirectExperienceHtml = pathname === '/experience.html' || pathname.endsWith('/experience.html');
+        const tokenCheck = verifyAccessToken(req);
+        if (tokenCheck.required) {
+          if (isDirectExperienceHtml && !tokenCheck.valid) {
+            res.writeHead(401, {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+              'X-Robots-Tag': 'noindex, nofollow, noarchive',
+              'Referrer-Policy': 'no-referrer',
+            });
+            res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
+            return;
+          }
+          if (req.headers['x-access-token'] && !tokenCheck.valid) {
+            res.writeHead(401, {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+              'X-Robots-Tag': 'noindex, nofollow, noarchive',
+              'Referrer-Policy': 'no-referrer',
+            });
+            res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
+            return;
+          }
+        }
       }
 
       // Normalize path to prevent directory traversal
@@ -74,7 +118,10 @@ const server = http.createServer((req, res) => {
 
       let filePath = safePath;
       if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-        filePath = path.join(filePath, 'index.html');
+        const docName = (released && fs.existsSync(path.join(filePath, 'experience.html')))
+          ? 'experience.html'
+          : 'index.html';
+        filePath = path.join(filePath, docName);
       }
 
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
@@ -89,8 +136,11 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      // SPA fallback to index.html in active dist directory
-      const indexPath = path.join(activeDistDir, 'index.html');
+      // SPA fallback to entry html in active dist directory
+      const entryDoc = (released && fs.existsSync(path.join(activeDistDir, 'experience.html')))
+        ? 'experience.html'
+        : 'index.html';
+      const indexPath = path.join(activeDistDir, entryDoc);
       if (fs.existsSync(indexPath)) {
         res.writeHead(200, {
           'Content-Type': 'text/html',
