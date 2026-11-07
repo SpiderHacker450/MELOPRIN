@@ -119,9 +119,15 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
   const tunnelUrlRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
+  const backoffAttemptRef = useRef<number>(0);
+  const nextPollTimeoutRef = useRef<number | null>(null);
 
-  // Authoritative server clock & tunnel config sync
+  // Authoritative server clock & tunnel config sync with bounded backoff
   const fetchServerStatus = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     try {
       // 1. Fetch public launch configuration with cache-busting
       let targetTunnel = '';
@@ -159,10 +165,12 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
       if (!targetTunnel) {
         serverOffsetRef.current = 0;
         setSyncError(false);
+        setIsVerifying(false);
         return;
       }
 
       // 2. Fetch authoritative release status from tunnel origin
+      setIsVerifying(true);
       const res = await fetch(`${targetTunnel}/api/release/status`, {
         headers: { 'Cache-Control': 'no-cache' },
       });
@@ -183,6 +191,7 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
 
       // Transition strictly when server confirms locked: false AND origin is verified
       if (!data.locked) {
+        setIsVerifying(false);
         if (targetTunnel && CLOUDFLARE_TUNNEL_REGEX.test(targetTunnel)) {
           // Fresh verification request right before redirect
           const confirmRes = await fetch(`${targetTunnel}/api/release/status`, {
@@ -197,20 +206,67 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
           }
         } else if (onUnlock) {
           onUnlock();
+          return;
+        }
+      } else {
+        // If server is still locked, reset verifying indicator
+        setIsVerifying(false);
+
+        // If client time has reached or passed zero, schedule next poll with bounded backoff (1.5s - 5s)
+        const effectiveNow = Date.now() + serverOffsetRef.current;
+        if (effectiveNow >= unlockTargetMsRef.current) {
+          const delayMs = Math.min(5000, 1500 * Math.pow(1.4, backoffAttemptRef.current));
+          backoffAttemptRef.current += 1;
+          if (nextPollTimeoutRef.current) clearTimeout(nextPollTimeoutRef.current);
+          nextPollTimeoutRef.current = window.setTimeout(() => {
+            fetchServerStatus();
+          }, delayMs);
+        } else {
+          backoffAttemptRef.current = 0;
         }
       }
     } catch {
       // On failure: fall back cleanly to local client clock with NO leftover offset
       serverOffsetRef.current = 0;
       setSyncError(true);
+      setIsVerifying(false);
+
+      // In case of error at or near zero, retry with bounded backoff
+      const effectiveNow = Date.now() + serverOffsetRef.current;
+      if (effectiveNow >= unlockTargetMsRef.current) {
+        const delayMs = Math.min(5000, 2000 * Math.pow(1.3, backoffAttemptRef.current));
+        backoffAttemptRef.current += 1;
+        if (nextPollTimeoutRef.current) clearTimeout(nextPollTimeoutRef.current);
+        nextPollTimeoutRef.current = window.setTimeout(() => {
+          fetchServerStatus();
+        }, delayMs);
+      }
+    } finally {
+      isFetchingRef.current = false;
     }
   }, [onUnlock]);
 
-  // Initial sync and 30s resync
+  // Dynamic poll scheduling: 30s standard, 5s during final minute before release
   useEffect(() => {
     fetchServerStatus();
-    const interval = setInterval(fetchServerStatus, 30000);
-    return () => clearInterval(interval);
+
+    const intervalTimer = setInterval(() => {
+      const remainingMs = Math.max(0, unlockTargetMsRef.current - (Date.now() + serverOffsetRef.current));
+      // In the final 60s, poll every 5s; otherwise every 30s
+      if (remainingMs <= 60000 && remainingMs > 0) {
+        fetchServerStatus();
+      }
+    }, 5000);
+
+    const normalInterval = setInterval(() => {
+      fetchServerStatus();
+    }, 30000);
+
+    return () => {
+      clearInterval(intervalTimer);
+      clearInterval(normalInterval);
+      if (nextPollTimeoutRef.current) clearTimeout(nextPollTimeoutRef.current);
+    };
   }, [fetchServerStatus]);
 
   // High-precision ticker (Date.now() + server offset in UTC ms)
@@ -231,11 +287,8 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
         seconds: remaining.seconds,
       });
 
-      if (remaining.isUnlocked && tunnelUrlRef.current) {
-        setIsVerifying(true);
-        fetchServerStatus().finally(() => {
-          setIsVerifying(false);
-        });
+      if (remaining.isUnlocked && tunnelUrlRef.current && !isFetchingRef.current) {
+        fetchServerStatus();
       }
     };
 
