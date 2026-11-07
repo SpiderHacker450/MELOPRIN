@@ -58,17 +58,50 @@ const RollingDigit = memo(({ value }: { value: string }) => {
 });
 RollingDigit.displayName = 'RollingDigit';
 
-// Two-digit Roll Unit
+// Two-digit Roll Unit (supports any digit length, min 2 digits)
 const RollValue = memo(({ value }: { value: number }) => {
   const str = String(Math.max(0, value)).padStart(2, '0');
   return (
     <div className="flex items-center justify-center font-mono tracking-tight">
-      <RollingDigit value={str[0]} />
-      <RollingDigit value={str[1]} />
+      {str.split('').map((char, index) => (
+        <RollingDigit key={index} value={char} />
+      ))}
     </div>
   );
 });
 RollValue.displayName = 'RollValue';
+
+export interface TimeRemaining {
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  totalMs: number;
+  isUnlocked: boolean;
+}
+
+/**
+ * Pure calculation function for remaining time using UTC epoch milliseconds.
+ * - Entirely timezone-independent and DST-immune (pure UTC ms subtraction).
+ * - When server sync fails or tunnelUrl is empty, serverOffsetMs is 0.
+ * - Never retains leftover or stale offset from earlier sessions.
+ */
+export function computeRemainingTime(
+  targetMs: number,
+  clientNowMs: number,
+  serverOffsetMs: number = 0
+): TimeRemaining {
+  const currentEffectiveTime = clientNowMs + serverOffsetMs;
+  const totalMs = Math.max(0, targetMs - currentEffectiveTime);
+  const isUnlocked = totalMs <= 0;
+
+  const days = Math.floor(totalMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((totalMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((totalMs % (1000 * 60)) / 1000);
+
+  return { days, hours, minutes, seconds, totalMs, isUnlocked };
+}
 
 export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
   const [timeLeft, setTimeLeft] = useState<{
@@ -91,7 +124,7 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
   const fetchServerStatus = useCallback(async () => {
     try {
       // 1. Fetch public launch configuration with cache-busting
-      let targetTunnel = tunnelUrlRef.current;
+      let targetTunnel = '';
       try {
         const cfgRes = await fetch('./launch-config.json?_t=' + Date.now(), {
           cache: 'no-store',
@@ -103,7 +136,11 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
             if (CLOUDFLARE_TUNNEL_REGEX.test(cleanUrl)) {
               targetTunnel = cleanUrl;
               tunnelUrlRef.current = targetTunnel;
+            } else {
+              tunnelUrlRef.current = '';
             }
+          } else {
+            tunnelUrlRef.current = '';
           }
           if (cfg.releaseTime) {
             const parsedTarget = new Date(cfg.releaseTime).getTime();
@@ -112,11 +149,21 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
             }
           }
         }
-      } catch {}
+      } catch {
+        tunnelUrlRef.current = '';
+      }
 
-      // 2. Fetch authoritative release status (either from tunnel origin or local endpoint)
-      const statusUrl = targetTunnel ? `${targetTunnel}/api/release/status` : '/api/release/status';
-      const res = await fetch(statusUrl, {
+      // If tunnelUrl is empty, we are in standalone public countdown mode on GitHub Pages.
+      // Must NOT attempt /api/release/status (which 404s).
+      // Fallback cleanly to local client UTC clock with zero leftover offset!
+      if (!targetTunnel) {
+        serverOffsetRef.current = 0;
+        setSyncError(false);
+        return;
+      }
+
+      // 2. Fetch authoritative release status from tunnel origin
+      const res = await fetch(`${targetTunnel}/api/release/status`, {
         headers: { 'Cache-Control': 'no-cache' },
       });
       if (!res.ok) {
@@ -127,9 +174,12 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
       const serverTimeMs = new Date(data.serverNow).getTime();
       const unlockMs = new Date(data.unlockAt).getTime();
 
-      serverOffsetRef.current = serverTimeMs - performance.now();
-      unlockTargetMsRef.current = unlockMs;
-      setSyncError(false);
+      if (!isNaN(serverTimeMs) && !isNaN(unlockMs)) {
+        // Authoritative server offset relative to UTC epoch ms
+        serverOffsetRef.current = serverTimeMs - Date.now();
+        unlockTargetMsRef.current = unlockMs;
+        setSyncError(false);
+      }
 
       // Transition strictly when server confirms locked: false AND origin is verified
       if (!data.locked) {
@@ -150,7 +200,8 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
         }
       }
     } catch {
-      // Never unlock on failure; set subtle status indicator
+      // On failure: fall back cleanly to local client clock with NO leftover offset
+      serverOffsetRef.current = 0;
       setSyncError(true);
     }
   }, [onUnlock]);
@@ -162,22 +213,25 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
     return () => clearInterval(interval);
   }, [fetchServerStatus]);
 
-  // High-precision ticker (performance.now() + server offset)
+  // High-precision ticker (Date.now() + server offset in UTC ms)
   useEffect(() => {
     const updateCountdown = () => {
       if (!unlockTargetMsRef.current) return;
 
-      const currentServerTime = performance.now() + serverOffsetRef.current;
-      const remainingMs = Math.max(0, unlockTargetMsRef.current - currentServerTime);
+      const remaining = computeRemainingTime(
+        unlockTargetMsRef.current,
+        Date.now(),
+        serverOffsetRef.current
+      );
 
-      const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((remainingMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
+      setTimeLeft({
+        days: remaining.days,
+        hours: remaining.hours,
+        minutes: remaining.minutes,
+        seconds: remaining.seconds,
+      });
 
-      setTimeLeft({ days, hours, minutes, seconds });
-
-      if (remainingMs <= 0) {
+      if (remaining.isUnlocked && tunnelUrlRef.current) {
         setIsVerifying(true);
         fetchServerStatus().finally(() => {
           setIsVerifying(false);
