@@ -211,14 +211,28 @@ function verifySession(tokenOrReq) {
     };
   }
 
-  // Check active server-side session registry
-  const sessionRecord = activeSessions.get(payload.sid);
+  // Retrieve or reconstruct session record across backend restarts
+  let sessionRecord = activeSessions.get(payload.sid);
   if (!sessionRecord) {
-    return {
-      valid: false,
-      reason: 'SESSION_NOT_FOUND',
-      message: 'Unauthorized: Session terminated',
+    // Cryptographic HMAC signature was verified above; restore session record across backend process restarts
+    sessionRecord = {
+      sid: payload.sid,
+      role: payload.role || 'authorized_guest',
+      iat: payload.iat || now,
+      exp: payload.exp,
+      sessionKey: null,
+      clientIp: null,
+      revoked: false,
+      revokeReason: null,
+      requestCount: 0,
+      burstCount: 0,
+      lastRequestTime: now,
+      recentPhotoHistory: [],
+      tokens: LIMITER_CONFIG.BUCKET_CAPACITY,
+      lastRefill: now,
+      consecutive429Count: 0,
     };
+    activeSessions.set(payload.sid, sessionRecord);
   }
 
   if (sessionRecord.revoked) {

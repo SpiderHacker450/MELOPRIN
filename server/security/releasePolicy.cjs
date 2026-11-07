@@ -61,9 +61,10 @@ let releaseConfirmed = false;
 // Periodic clock drift check every 60 seconds (within 60-120s specification in final 2 hours)
 if (process.env.NODE_ENV !== 'test') {
   verifyClockDrift().catch(() => {});
-  setInterval(() => {
+  const timer = setInterval(() => {
     verifyClockDrift().catch(() => {});
   }, 60 * 1000);
+  if (timer.unref) timer.unref();
 }
 
 /**
