@@ -11,6 +11,14 @@ interface ReleaseStatus {
   unlockAt: string;
 }
 
+interface LaunchConfig {
+  tunnelUrl?: string;
+  releaseTime?: string;
+  updatedAt?: string;
+}
+
+const DEFAULT_RELEASE_TIME_ISO = '2026-11-20T18:30:00Z';
+
 // Rolling Single Digit Component with smooth vertical roll
 const RollingDigit = memo(({ value }: { value: string }) => {
   const [displayValue, setDisplayValue] = useState(value);
@@ -73,14 +81,38 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
   const [syncError, setSyncError] = useState<boolean>(false);
 
   const serverOffsetRef = useRef<number>(0);
-  const unlockTargetMsRef = useRef<number>(0);
+  const unlockTargetMsRef = useRef<number>(new Date(DEFAULT_RELEASE_TIME_ISO).getTime());
+  const tunnelUrlRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Authoritative server clock sync
+  // Authoritative server clock & tunnel config sync
   const fetchServerStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/release/status', {
+      // 1. Fetch public launch configuration with cache-busting
+      let targetTunnel = tunnelUrlRef.current;
+      try {
+        const cfgRes = await fetch('./launch-config.json?_t=' + Date.now(), {
+          cache: 'no-store',
+        });
+        if (cfgRes.ok) {
+          const cfg: LaunchConfig = await cfgRes.json();
+          if (cfg.tunnelUrl && typeof cfg.tunnelUrl === 'string' && cfg.tunnelUrl.startsWith('https://')) {
+            targetTunnel = cfg.tunnelUrl.replace(/\/+$/, '');
+            tunnelUrlRef.current = targetTunnel;
+          }
+          if (cfg.releaseTime) {
+            const parsedTarget = new Date(cfg.releaseTime).getTime();
+            if (!isNaN(parsedTarget)) {
+              unlockTargetMsRef.current = parsedTarget;
+            }
+          }
+        }
+      } catch {}
+
+      // 2. Fetch authoritative release status (either from tunnel origin or local endpoint)
+      const statusUrl = targetTunnel ? `${targetTunnel}/api/release/status` : '/api/release/status';
+      const res = await fetch(statusUrl, {
         headers: { 'Cache-Control': 'no-cache' },
       });
       if (!res.ok) {
@@ -96,8 +128,14 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
       setSyncError(false);
 
       // Transition strictly when server confirms locked: false
-      if (!data.locked && onUnlock) {
-        onUnlock();
+      if (!data.locked) {
+        if (targetTunnel) {
+          window.location.href = targetTunnel + '/';
+          return;
+        }
+        if (onUnlock) {
+          onUnlock();
+        }
       }
     } catch {
       // Never unlock on failure; set subtle status indicator

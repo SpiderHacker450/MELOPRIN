@@ -57,8 +57,30 @@ function releaseMiddleware(req, res, next) {
     ? (req.headers['x-test-clock'] || req.__testClock || null)
     : null;
 
-  // 1. Release Status Endpoint: GET /api/release/status
+  // 1. Release Status Endpoint: GET /api/release/status (with targeted CORS for GitHub Pages)
   if (pathname === '/api/release/status') {
+    const origin = req.headers.origin;
+    const ALLOWED_ORIGINS = [
+      'https://spiderhacker450.github.io',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+    ];
+
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Cache-Control');
+    }
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, { 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+
     // Dedicated rate limit check for status polling
     const rateCheck = checkStatusRateLimit(clientIp);
     if (!rateCheck.allowed) {

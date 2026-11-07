@@ -10,6 +10,7 @@ const target = process.env.PINKVERSE_BUILD_TARGET || 'public';
 const isExperience = target === 'experience';
 
 export default defineConfig({
+  base: './',
   plugins: [react(), pinkverseSecurityPlugin()],
   server: {
     port: 5173,
