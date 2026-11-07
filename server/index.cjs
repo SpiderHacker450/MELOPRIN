@@ -4,14 +4,12 @@ const fs = require('fs');
 const { releaseMiddleware } = require('./security/releaseMiddleware.cjs');
 const { isReleased, validateProductionReleaseConfig } = require('./security/releasePolicy.cjs');
 const { validateProductionSessionSecret } = require('./security/sessionManager.cjs');
-const { validateProductionAccessToken, verifyAccessToken } = require('./security/accessTokenManager.cjs');
 const { securityMiddleware } = require('./middleware.cjs');
 
 // Fail-closed startup check in production
 try {
   validateProductionReleaseConfig();
   validateProductionSessionSecret();
-  validateProductionAccessToken();
 } catch (err) {
   console.error(err.message);
   process.exit(1);
@@ -78,34 +76,6 @@ const server = http.createServer((req, res) => {
       let cacheControl = 'public, max-age=3600';
       if (isHtmlDoc || released) {
         cacheControl = 'private, no-store, max-age=0, must-revalidate';
-      }
-
-      // Entry-HTML access token verification when PINKVERSE_ACCESS_TOKEN is configured
-      if (released) {
-        const isDirectExperienceHtml = pathname === '/experience.html' || pathname.endsWith('/experience.html');
-        const tokenCheck = verifyAccessToken(req);
-        if (tokenCheck.required) {
-          if (isDirectExperienceHtml && !tokenCheck.valid) {
-            res.writeHead(401, {
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-store',
-              'X-Robots-Tag': 'noindex, nofollow, noarchive',
-              'Referrer-Policy': 'no-referrer',
-            });
-            res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
-            return;
-          }
-          if (req.headers['x-access-token'] && !tokenCheck.valid) {
-            res.writeHead(401, {
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-store',
-              'X-Robots-Tag': 'noindex, nofollow, noarchive',
-              'Referrer-Policy': 'no-referrer',
-            });
-            res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
-            return;
-          }
-        }
       }
 
       // Normalize path to prevent directory traversal

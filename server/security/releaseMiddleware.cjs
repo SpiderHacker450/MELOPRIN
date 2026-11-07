@@ -26,7 +26,6 @@ const {
   checkPhotoRateLimit,
 } = require('./releaseRateLimiter.cjs');
 const { getClientIp } = require('./trustProxy.cjs');
-const { verifyAccessToken } = require('./accessTokenManager.cjs');
 
 function sendUniformLocked(res, req) {
   res.writeHead(423, {
@@ -155,19 +154,6 @@ function releaseMiddleware(req, res, next) {
     // After release: Handle private content delivery endpoint
     // Automatically issues an HMAC-signed session cookie on the first request (no passcode needed)
     if (pathname === '/api/release/content' && req.method === 'GET') {
-      // Optional secret link token enforcement (PINKVERSE_ACCESS_TOKEN)
-      const tokenVerification = verifyAccessToken(req);
-      if (tokenVerification.required && !tokenVerification.valid) {
-        res.writeHead(401, {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-          'X-Robots-Tag': 'noindex, nofollow, noarchive',
-          'Referrer-Policy': 'no-referrer',
-        });
-        res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
-        return;
-      }
-
       try {
         const experience = getPrivateExperience(testClock);
         let sessionCookieHeader = null;
@@ -176,14 +162,14 @@ function releaseMiddleware(req, res, next) {
         if (!verification.valid) {
           // Automatic session issuance for legitimate visitor without passcode
           const newSession = createAuthorizedSession(clientIp);
-          const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted;
-          sessionCookieHeader = `pinkverse_secure_session=${newSession.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=14400${isSecure ? '; Secure' : ''}`;
+          const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted || req.socket?.encrypted;
+          sessionCookieHeader = `pinkverse_secure_session=${newSession.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=14400${isSecure ? '; Secure' : ''}`;
         } else if (verification.session) {
           // Silent renewal if less than 1 hour remaining on existing session
           const renewed = renewSessionIfNearExpiry(verification.session);
           if (renewed) {
-            const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted;
-            sessionCookieHeader = `pinkverse_secure_session=${renewed.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=14400${isSecure ? '; Secure' : ''}`;
+            const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted || req.socket?.encrypted;
+            sessionCookieHeader = `pinkverse_secure_session=${renewed.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=14400${isSecure ? '; Secure' : ''}`;
           }
         }
 

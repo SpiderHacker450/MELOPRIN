@@ -9,7 +9,54 @@ const { resolvePrivateImage, getAuthorizedDerivative } = require('./security/ima
 const { evaluateRequestAbuse, isSuspiciousClient } = require('./security/abuseDefender.cjs');
 const { recordForensicEvent } = require('./security/forensicsLog.cjs');
 const { getClientIp } = require('./security/trustProxy.cjs');
-const { verifyAccessToken } = require('./security/accessTokenManager.cjs');
+
+function isOriginAllowed(req) {
+  const secFetchSite = req.headers['sec-fetch-site'];
+  const origin = req.headers['origin'];
+  const host = req.headers['host'];
+
+  // Sec-Fetch-Site browser check: cross-site requests only allowed from GitHub Pages
+  if (secFetchSite && secFetchSite === 'cross-site') {
+    if (!origin || !origin.startsWith('https://spiderhacker450.github.io')) {
+      return false;
+    }
+  }
+
+  // Origin header check if present
+  if (origin) {
+    const allowedOrigins = [
+      'https://spiderhacker450.github.io',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3001',
+    ];
+    if (host) {
+      allowedOrigins.push(`http://${host}`);
+      allowedOrigins.push(`https://${host}`);
+    }
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(origin);
+    if (!isAllowed) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sendGenericUnauthorized(res) {
+  res.writeHead(401, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store, max-age=0, must-revalidate',
+    'X-Robots-Tag': 'noindex, nofollow, noarchive',
+    'Referrer-Policy': 'no-referrer',
+  });
+  res.end(JSON.stringify({ error: 'Unauthorized' }));
+}
 
 function parseJsonBody(req) {
   return new Promise((resolve) => {
@@ -56,47 +103,32 @@ function securityMiddleware(req, res, next) {
     return;
   }
 
-  // 2. Secret link token gate (if PINKVERSE_ACCESS_TOKEN is configured)
+  // 2. Photo & Audio Cross-Origin & Hotlink Gate
   const isPhotoRoute =
     pathname.startsWith('/api/v2/photos') ||
     pathname.startsWith('/api/photos') ||
     pathname.startsWith('/api/private-images');
   const isAudioRoute = pathname.startsWith('/audio/') || pathname.endsWith('.mp3');
 
-  if (isPhotoRoute || isAudioRoute || pathname === '/api/auth/session') {
-    const tokenCheck = verifyAccessToken(req);
-    if (tokenCheck.required && !tokenCheck.valid) {
-      res.writeHead(401, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-        'X-Robots-Tag': 'noindex, nofollow, noarchive',
-        'Referrer-Policy': 'no-referrer',
-      });
-      res.end(JSON.stringify({ error: 'UNAUTHORIZED', message: 'Valid access token required' }));
-      return;
-    }
+  if ((isPhotoRoute || isAudioRoute) && !isOriginAllowed(req)) {
+    sendGenericUnauthorized(res);
+    return;
   }
 
-  // 3. Audio & Media Session Gate: Prohibit hot-linking or unauthenticated scraping
-  if (pathname.startsWith('/audio/') || pathname.endsWith('.mp3')) {
+  // 3. Audio & Media Session Gate: Prohibit unauthenticated scraping
+  if (isAudioRoute) {
     const verification = verifySession(req);
     if (!verification.valid) {
-      res.writeHead(401, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-        'X-Robots-Tag': 'noindex, nofollow, noarchive',
-        'Referrer-Policy': 'no-referrer',
-      });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      sendGenericUnauthorized(res);
       return;
     }
   }
 
-  // 3. Guest Session Auto-Issue Endpoint: POST /api/auth/session
+  // 4. Guest Session Auto-Issue Endpoint: POST /api/auth/session
   if (pathname === '/api/auth/session') {
     const session = createAuthorizedSession(clientIp);
-    const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted;
-    const cookieHeader = `pinkverse_secure_session=${session.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=14400${isSecure ? '; Secure' : ''}`;
+    const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.connection?.encrypted || req.socket?.encrypted;
+    const cookieHeader = `pinkverse_secure_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=14400${isSecure ? '; Secure' : ''}`;
 
     res.writeHead(200, {
       'Content-Type': 'application/json',
