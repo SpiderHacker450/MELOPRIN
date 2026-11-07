@@ -53,6 +53,16 @@ function getReleaseTimeISO() {
   return envTime;
 }
 
+const { getCachedClockDriftStatus, verifyClockDrift } = require('./clockDriftVerifier.cjs');
+
+// Periodic clock drift check every 60 seconds
+if (process.env.NODE_ENV !== 'test') {
+  verifyClockDrift().catch(() => {});
+  setInterval(() => {
+    verifyClockDrift().catch(() => {});
+  }, 60 * 1000);
+}
+
 /**
  * Returns release status evaluated against host server clock.
  * Test clock override is ONLY accepted in test environments (NODE_ENV === 'test').
@@ -83,6 +93,24 @@ function getReleaseStatus(testClock = null) {
     }
 
     const serverNowISO = new Date(nowMs).toISOString();
+
+    // Security check: within release window (within 1 hour or after release),
+    // require that external clock drift check is verified and <= 120s
+    if (process.env.NODE_ENV !== 'test') {
+      const nearReleaseWindow = nowMs >= (releaseInstant - 60 * 60 * 1000);
+      if (nearReleaseWindow) {
+        const driftStatus = getCachedClockDriftStatus();
+        if (!driftStatus.ok) {
+          console.error('[ReleasePolicy] External HTTPS clock drift check failed (> 120s or unreachable). Failing closed.');
+          return {
+            locked: true,
+            serverNow: serverNowISO,
+            unlockAt: releaseTimeISO,
+          };
+        }
+      }
+    }
+
     const isUnlocked = nowMs >= releaseInstant;
 
     return {

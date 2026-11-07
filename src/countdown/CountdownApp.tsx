@@ -18,6 +18,7 @@ interface LaunchConfig {
 }
 
 const DEFAULT_RELEASE_TIME_ISO = '2026-11-20T18:30:00Z';
+const CLOUDFLARE_TUNNEL_REGEX = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
 
 // Rolling Single Digit Component with smooth vertical roll
 const RollingDigit = memo(({ value }: { value: string }) => {
@@ -97,9 +98,12 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
         });
         if (cfgRes.ok) {
           const cfg: LaunchConfig = await cfgRes.json();
-          if (cfg.tunnelUrl && typeof cfg.tunnelUrl === 'string' && cfg.tunnelUrl.startsWith('https://')) {
-            targetTunnel = cfg.tunnelUrl.replace(/\/+$/, '');
-            tunnelUrlRef.current = targetTunnel;
+          if (cfg.tunnelUrl && typeof cfg.tunnelUrl === 'string') {
+            const cleanUrl = cfg.tunnelUrl.trim().replace(/\/+$/, '');
+            if (CLOUDFLARE_TUNNEL_REGEX.test(cleanUrl)) {
+              targetTunnel = cleanUrl;
+              tunnelUrlRef.current = targetTunnel;
+            }
           }
           if (cfg.releaseTime) {
             const parsedTarget = new Date(cfg.releaseTime).getTime();
@@ -127,13 +131,21 @@ export const CountdownApp: React.FC<CountdownAppProps> = ({ onUnlock }) => {
       unlockTargetMsRef.current = unlockMs;
       setSyncError(false);
 
-      // Transition strictly when server confirms locked: false
+      // Transition strictly when server confirms locked: false AND origin is verified
       if (!data.locked) {
-        if (targetTunnel) {
-          window.location.href = targetTunnel + '/';
-          return;
-        }
-        if (onUnlock) {
+        if (targetTunnel && CLOUDFLARE_TUNNEL_REGEX.test(targetTunnel)) {
+          // Fresh verification request right before redirect
+          const confirmRes = await fetch(`${targetTunnel}/api/release/status`, {
+            headers: { 'Cache-Control': 'no-cache' },
+          });
+          if (confirmRes.ok) {
+            const confirmData: ReleaseStatus = await confirmRes.json();
+            if (!confirmData.locked) {
+              window.location.href = targetTunnel + '/';
+              return;
+            }
+          }
+        } else if (onUnlock) {
           onUnlock();
         }
       }

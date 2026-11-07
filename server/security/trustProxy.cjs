@@ -9,7 +9,9 @@
  */
 
 function isLoopback(ip) {
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  if (!ip) return false;
+  const clean = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+  return clean === '127.0.0.1' || clean === '::1' || clean === 'localhost';
 }
 
 function getClientIp(req) {
@@ -21,29 +23,28 @@ function getClientIp(req) {
     return normalizeIp(socketIp);
   }
 
-  // Cloudflare mode
-  if (trustProxyConfig === 'cloudflare' && req.headers['cf-connecting-ip']) {
-    return normalizeIp(req.headers['cf-connecting-ip']);
-  }
-
-  // Loopback mode: only trust forwarded headers if incoming socket connection is loopback
-  if (trustProxyConfig === 'loopback' && !isLoopback(socketIp)) {
+  // Security mandate: Only trust CF-Connecting-IP and forwarded headers if socket peer is loopback
+  if (!isLoopback(socketIp)) {
     return normalizeIp(socketIp);
   }
 
-  // Proxy mode (true / 1 / loopback from local proxy)
+  // When socket peer is loopback (e.g. cloudflared proxy):
+  // 1. Prioritize Cloudflare client IP header
+  if (req.headers['cf-connecting-ip']) {
+    return normalizeIp(req.headers['cf-connecting-ip']);
+  }
+
+  // 2. Standard X-Forwarded-For chain
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
     const ips = forwarded.split(',').map(s => s.trim()).filter(Boolean);
     if (ips.length > 0) {
-      // First IP in standard chain is client IP
       return normalizeIp(ips[0]);
     }
   }
 
-  const realIp = req.headers['x-real-ip'];
-  if (realIp) {
-    return normalizeIp(realIp);
+  if (req.headers['x-real-ip']) {
+    return normalizeIp(req.headers['x-real-ip']);
   }
 
   return normalizeIp(socketIp);
